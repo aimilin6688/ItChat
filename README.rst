@@ -19,7 +19,17 @@ Now Wechat is an important part of personal life, hopefully this repo can help y
 
 **Simple uses**
 
-With itchat, you only need to write this to reply personal text messages.
+With itchat, if you want to send a message to filehelper, this is how:
+
+.. code:: python
+
+    import itchat
+
+    itchat.auto_login()
+
+    itchat.send('Hello, filehelper', toUserName='filehelper')
+
+And you only need to write this to reply personal text messages.
 
 .. code:: python
     
@@ -156,6 +166,46 @@ If you don't want a local copy of the picture, you may pass nothing to the funct
         with open(msg['FileName'], 'wb') as f:
             f.write(msg['Text']())
 
+*Multi instance*
+
+You may use the following commands to open multi instance.
+
+.. code:: python
+
+    import itchat
+
+    newInstance = itchat.new_instance()
+    newInstance.auto_login(hotReload=True, statusStorageDir='newInstance.pkl')
+
+    @newInstance.msg_register(TEXT)
+    def reply(msg):
+        return msg['Text']
+
+    newInstance.run()
+
+*Set callback after login and logout*
+
+Callback of login and logout are set through `loginCallback` and `exitCallback`.
+
+.. code:: python
+
+    import time
+
+    import itchat
+
+    def lc():
+        print('finish login')
+    def ec():
+        print('exit')
+
+    itchat.auto_login(loginCallback=lc, exitCallback=ec)
+    time.sleep(3)
+    itchat.logout()
+
+If loginCallback is not set, qr picture will be deleted and cmd will be cleared.
+
+If you exit through phone, exitCallback will also be called.
+
 **FAQ**
 
 Q: Why I can't send files whose name is encoded in utf8?
@@ -169,6 +219,10 @@ A: That's because you need to install optional site-package pillow, try this scr
 Q: How to use this package to use my wechat as an monitor?
 
 A: There are two ways: communicate with your own account or with filehelper.
+
+Q: Why sometimes I can't send messages?
+
+A: Some account simply can't send messages to yourself, so use `filehelper` instead.
 
 **Comments**
 

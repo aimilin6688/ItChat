@@ -6,11 +6,11 @@ itchat是一个开源的微信个人号接口，使用python调用微信从未�
 
 使用不到三十行的代码，你就可以完成一个能够处理所有信息的微信机器人。
 
-当然，该api的使用远不止一个机器人，更多的功能等着你来发现。
+当然，该api的使用远不止一个机器人，更多的功能等着你来发现，比如[这些][tutorial2]。
 
 如今微信已经成为了个人社交的很大一部分，希望这个项目能够帮助你扩展你的个人的微信号、方便自己的生活。
 
-## Installation
+## 安装
 
 可以通过本命令安装itchat：
 
@@ -18,36 +18,44 @@ itchat是一个开源的微信个人号接口，使用python调用微信从未�
 pip install itchat
 ```
 
-## Simple uses
+## 简单入门实例
 
-有了itchat，如果你想要回复发给自己的文本消息，只需要这样：
+有了itchat，如果你想要给文件传输助手发一条信息，只需要这样：
+
+```python
+import itchat
+
+itchat.auto_login()
+
+itchat.send('Hello, filehelper', toUserName='filehelper')
+```
+
+如果你想要回复发给自己的文本消息，只需要这样：
 
 ```python
 import itchat
 
 @itchat.msg_register(itchat.content.TEXT)
 def text_reply(msg):
-    itchat.send(msg['Text'], msg['FromUserName'])
+    return msg['Text']
 
 itchat.auto_login()
 itchat.run()
 ```
 
-一些进阶应用可以在Advanced uses中看到，或者你也可以阅览[文档][document]。
+一些进阶应用可以在下面的开源机器人的源码和进阶应用中看到，或者你也可以阅览[文档][document]。
 
-
-
-## Have a try
+## 试一试
 
 这是一个基于这一项目的[开源小机器人][robot-source-code]，百闻不如一见，有兴趣可以尝试一下。
 
 ![QRCode][robot-qr]
 
-## Screenshots
+## 截屏
 
 ![file-autoreply][robot-demo-file] ![login-page][robot-demo-login]
 
-## Advanced uses
+## 进阶应用
 
 ### 各类型消息的注册
 
@@ -160,7 +168,47 @@ def download_files(msg):
         f.write(msg['Text']())
 ```
 
-## FAQ
+### 用户多开
+
+使用如下命令可以完成多开的操作：
+
+```python
+import itchat
+
+newInstance = itchat.new_instance()
+newInstance.auto_login(hotReload=True, statusStorageDir='newInstance.pkl')
+
+@newInstance.msg_register(TEXT)
+def reply(msg):
+    return msg['Text']
+
+newInstance.run()
+```
+
+### 退出及登陆完成后调用特定方法
+
+登陆完成后的方法需要赋值在`loginCallback`中。
+
+而退出后的方法需要赋值在`exitCallback`中。
+
+```python
+import time
+
+import itchat
+
+def lc():
+    print('finish login')
+def ec():
+    print('exit')
+
+itchat.auto_login(loginCallback=lc, exitCallback=ec)
+time.sleep(3)
+itchat.logout()
+```
+
+若不设置loginCallback的值，则将会自动删除二维码图片并清空命令行显示。
+
+## 常见问题与解答
 
 Q: 为什么中文的文件没有办法上传？
 
@@ -174,19 +222,27 @@ Q: 如何通过这个包将自己的微信号变为控制器？
 
 A: 有两种方式：发送、接受自己UserName的消息；发送接收文件传输助手（filehelper）的消息
 
-## Author
+Q: 为什么我发送信息的时候部分信息没有成功发出来？
 
-[LittleCoder][littlecodersh]: 整体构架及完成Python2 Python3版本。
+A: 有些账号是天生无法给自己的账号发送信息的，建议使用`filehelper`代替。
+
+## 作者
+
+[LittleCoder][littlecodersh]: 构架及维护Python2 Python3版本。
+
+[tempdban][tempdban]: 协议、构架及日常维护。
 
 [Chyroc][Chyroc]: 完成第一版本的Python3构架。
 
-## See also
+## 类似项目
 
 [liuwons/wxBot][liuwons-wxBot]: 类似的基于Python的微信机器人
 
 [zixia/wechaty][zixia-wechaty]: 基于Javascript(ES6)的微信个人账号机器人NodeJS框架/库
 
-## Comments
+[sjdy521/Mojo-Weixin][Mojo-Weixin]: 使用Perl语言编写的微信客户端框架，可通过插件提供基于HTTP协议的api接口供其他语言调用
+
+## 问题和建议
 
 如果有什么问题或者建议都可以在这个[Issue][issue#1]和我讨论
 
@@ -200,6 +256,7 @@ A: 有两种方式：发送、接受自己UserName的消息；发送接收文件
 [py35]: https://img.shields.io/badge/python-3.5-red.svg
 [english-version]: https://github.com/littlecodersh/ItChat/blob/master/README_EN.md
 [document]: https://itchat.readthedocs.org/zh/latest/
+[tutorial2]: http://python.jobbole.com/86532/
 [robot-source-code]: https://gist.github.com/littlecodersh/ec8ddab12364323c97d4e36459174f0d
 [robot-qr]: http://7xrip4.com1.z0.glb.clouddn.com/ItChat%2FQRCode2.jpg?imageView/2/w/400/
 [robot-demo-file]: http://7xrip4.com1.z0.glb.clouddn.com/ItChat%2FScreenshots%2F%E5%BE%AE%E4%BF%A1%E8%8E%B7%E5%8F%96%E6%96%87%E4%BB%B6%E5%9B%BE%E7%89%87.png?imageView/2/w/300/
@@ -207,7 +264,9 @@ A: 有两种方式：发送、接受自己UserName的消息；发送接收文件
 [fields.py-2]: https://gist.github.com/littlecodersh/9a0c5466f442d67d910f877744011705
 [fields.py-3]: https://gist.github.com/littlecodersh/e93532d5e7ddf0ec56c336499165c4dc
 [littlecodersh]: https://github.com/littlecodersh
+[tempdban]: https://github.com/tempdban
 [Chyroc]: https://github.com/Chyroc
 [liuwons-wxBot]: https://github.com/liuwons/wxBot
 [zixia-wechaty]: https://github.com/zixia/wechaty
+[Mojo-Weixin]: https://github.com/sjdy521/Mojo-Weixin
 [issue#1]: https://github.com/littlecodersh/ItChat/issues/1

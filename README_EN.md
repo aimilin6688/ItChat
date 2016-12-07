@@ -20,14 +20,24 @@ pip install itchat
 
 ## Simple uses
 
-With itchat, you only need to write this to reply personal text messages.
+With itchat, if you want to send a message to filehelper, this is how:
+
+```python
+import itchat
+
+itchat.auto_login()
+
+itchat.send('Hello, filehelper', toUserName='filehelper')
+```
+
+And you only need to write this to reply personal text messages.
 
 ```python
 import itchat
 
 @itchat.msg_register(itchat.content.TEXT)
 def text_reply(msg):
-    itchat.send(msg['Text'], msg['FromUserName'])
+    return msg['Text']
 
 itchat.auto_login()
 itchat.run()
@@ -158,6 +168,46 @@ def download_files(msg):
         f.write(msg['Text']())
 ```
 
+### Multi instance
+
+You may use the following commands to open multi instance.
+
+```python
+import itchat
+
+newInstance = itchat.new_instance()
+newInstance.auto_login(hotReload=True, statusStorageDir='newInstance.pkl')
+
+@newInstance.msg_register(TEXT)
+def reply(msg):
+    return msg['Text']
+
+newInstance.run()
+```
+
+### Set callback after login and logout
+
+Callback of login and logout are set through `loginCallback` and `exitCallback`.
+
+```python
+import time
+
+import itchat
+
+def lc():
+    print('finish login')
+def ec():
+    print('exit')
+
+itchat.auto_login(loginCallback=lc, exitCallback=ec)
+time.sleep(3)
+itchat.logout()
+```
+
+If loginCallback is not set, qr picture will be deleted and cmd will be cleared.
+
+If you exit through phone, exitCallback will also be called.
+
 ## FAQ
 
 Q: Why I can't upload files whose name is not purely english?
@@ -172,9 +222,15 @@ Q: How to use this package to use my wechat as an monitor?
 
 A: There are two ways: communicate with your own account or with filehelper.
 
+Q: Why sometimes I can't send messages?
+
+A: Some account simply can't send messages to yourself, so use `filehelper` instead.
+
 ## Author
 
 [LittleCoder][littlecodersh]: Structure and py2 py3 version
+
+[tempdban][tempdban]: Structure and daily maintainance
 
 [Chyroc][Chyroc]: first py3 version
 
@@ -182,7 +238,9 @@ A: There are two ways: communicate with your own account or with filehelper.
 
 [liuwons/wxBot][liuwons-wxBot]: A wechat robot similiar to the robot branch
 
-[zixia/wechaty][zixia-wechaty]: wechat for bot in Javascript(ES6), Personal Account Robot Framework/Library.
+[zixia/wechaty][zixia-wechaty]: wechat for bot in Javascript(ES6), Personal Account Robot Framework/Library
+
+[sjdy521/Mojo-Weixin][Mojo-Weixin]: wechat web api in Perl, available with HTTP requests
 
 ## Comments
 
@@ -203,7 +261,9 @@ Or you may also use [![Gitter][gitter-picture]][gitter]
 [fields.py-2]: https://gist.github.com/littlecodersh/9a0c5466f442d67d910f877744011705
 [fields.py-3]: https://gist.github.com/littlecodersh/e93532d5e7ddf0ec56c336499165c4dc
 [littlecodersh]: https://github.com/littlecodersh
+[tempdban]: https://github.com/tempdban
 [Chyroc]: https://github.com/Chyroc
 [liuwons-wxBot]: https://github.com/liuwons/wxBot
 [zixia-wechaty]: https://github.com/zixia/wechaty
+[Mojo-Weixin]: https://github.com/sjdy521/Mojo-Weixin
 [issue#1]: https://github.com/littlecodersh/ItChat/issues/1
