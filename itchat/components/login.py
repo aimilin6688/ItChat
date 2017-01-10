@@ -8,7 +8,7 @@ import requests
 
 from .. import config, utils
 from ..returnvalues import ReturnValue
-from .contact import update_local_chatrooms
+from .contact import update_local_chatrooms, update_local_friends
 from .messages import produce_msg
 
 logger = logging.getLogger('itchat')
@@ -145,7 +145,6 @@ def process_login_info(core, loginContent):
     else:
         core.loginInfo['fileUrl'] = core.loginInfo['syncUrl'] = core.loginInfo['url']
     core.loginInfo['deviceid'] = 'e' + repr(random.random())[2:17]
-    core.loginInfo['msgid'] = int(time.time() * 1000)
     core.loginInfo['BaseRequest'] = {}
     for node in xml.dom.minidom.parseString(r.text).documentElement.childNodes:
         if node.nodeName == 'skey':
@@ -165,6 +164,7 @@ def web_init(self):
         'User-Agent' : config.USER_AGENT, }
     r = self.s.post(url, data=json.dumps(data), headers=headers)
     dic = json.loads(r.content.decode('utf-8', 'replace'))
+    # deal with login info
     utils.emoji_formatter(dic['User'], 'NickName')
     self.loginInfo['InviteStartCount'] = int(dic['InviteStartCount'])
     self.loginInfo['User'] = utils.struct_friend_info(dic['User'])
@@ -173,7 +173,20 @@ def web_init(self):
         for item in dic['SyncKey']['List']])
     self.storageClass.userName = dic['User']['UserName']
     self.storageClass.nickName = dic['User']['NickName']
-    self.memberList.append(dic['User'])
+    # deal with contact list returned when init
+    contactList = dic.get('ContactList', [])
+    contactList.append(self.loginInfo['User'])
+    chatroomList, otherList = [], []
+    for m in contactList:
+        if m['Sex'] != 0:
+            otherList.append(m)
+        elif '@@' in m['UserName']:
+            chatroomList.append(m)
+        elif '@' in m['UserName']:
+            # mp will be dealt in update_local_friends as well
+            otherList.append(m)
+    if chatroomList: update_local_chatrooms(self, chatroomList)
+    if otherList: update_local_friends(self, otherList)
     return dic
 
 def show_mobile_login(self):
@@ -191,7 +204,7 @@ def show_mobile_login(self):
     r = self.s.post(url, data=json.dumps(data), headers=headers)
     return ReturnValue(rawResponse=r)
 
-def start_receiving(self, exitCallback=None):
+def start_receiving(self, exitCallback=None, getReceivingFnOnly=False):
     self.alive = True
     def maintain_loop():
         retryCount = 0
@@ -204,6 +217,9 @@ def start_receiving(self, exitCallback=None):
                     continue
                 else:
                     msgList, contactList = self.get_msg()
+                    if msgList:
+                        msgList = produce_msg(self, msgList)
+                        for msg in msgList: self.msgList.put(msg)
                     if contactList:
                         chatroomList, otherList = [], []
                         for contact in contactList:
@@ -213,9 +229,7 @@ def start_receiving(self, exitCallback=None):
                                 otherList.append(contact)
                         chatroomMsg = update_local_chatrooms(self, chatroomList)
                         self.msgList.put(chatroomMsg)
-                    if msgList:
-                        msgList = produce_msg(self, msgList)
-                        for msg in msgList: self.msgList.put(msg)
+                        update_local_friends(self, otherList)
                 retryCount = 0
             except:
                 retryCount += 1
@@ -229,9 +243,12 @@ def start_receiving(self, exitCallback=None):
             exitCallback()
         else:
             logger.info('LOG OUT!')
-    maintainThread = threading.Thread(target = maintain_loop)
-    maintainThread.setDaemon(True)
-    maintainThread.start()
+    if getReceivingFnOnly:
+        return maintain_loop
+    else:
+        maintainThread = threading.Thread(target=maintain_loop)
+        maintainThread.setDaemon(True)
+        maintainThread.start()
 
 def sync_check(self):
     url = '%s/synccheck' % self.loginInfo.get('syncUrl', self.loginInfo['url'])

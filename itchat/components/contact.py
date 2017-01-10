@@ -1,4 +1,4 @@
-import os, time, re
+import os, time, re, io
 import json, copy
 import traceback, logging
 
@@ -65,7 +65,7 @@ def update_chatroom(self, userName, detailedMember=False):
         MAX_GET_NUMBER = 50
         for chatroom in chatroomList:
             totalMemberList = []
-            for i in range(len(chatroom['MemberList']) / MAX_GET_NUMBER + 1):
+            for i in range(int(len(chatroom['MemberList']) / MAX_GET_NUMBER + 1)):
                 memberList = chatroom['MemberList'][i*MAX_GET_NUMBER: (i+1)*MAX_GET_NUMBER]
                 totalMemberList += get_detailed_member_info(chatroom['EncryChatRoomId'], memberList)
             chatroom['MemberList'] = totalMemberList
@@ -91,11 +91,11 @@ def update_friend(self, userName):
             'EncryChatRoomId': '', } for u in userName], }
     friendList = json.loads(self.s.post(url, data=json.dumps(data), headers=headers
             ).content.decode('utf8', 'replace')).get('ContactList')
-    
+
     update_local_friends(self, friendList)
     r = [self.storageClass.search_friends(userName=f['UserName'])
         for f in friendList]
-    return r if 1 < len(r) else r[0]
+    return r if len(r) != 1 else r[0]
 
 def update_info_dict(oldInfoDict, newInfoDict):
     '''
@@ -137,6 +137,15 @@ def update_local_chatrooms(core, l):
         else:
             oldChatroom = chatroom
             core.chatroomList.append(chatroom)
+        # delete useless members
+        if len(chatroom['MemberList']) != len(oldChatroom['MemberList']) and \
+                chatroom['MemberList']:
+            existsUserNames = [member['UserName'] for member in chatroom['MemberList']]
+            delList = []
+            for i, member in enumerate(oldChatroom['MemberList']):
+                if member['UserName'] not in existsUserNames: delList.append(i)
+            delList.sort(reverse=True)
+            for i in delList: del oldChatroom['MemberList'][i]
         #  - update OwnerUin
         if oldChatroom.get('ChatRoomOwner') and oldChatroom.get('MemberList'):
             oldChatroom['OwnerUin'] = utils.search_dict_list(oldChatroom['MemberList'],
@@ -159,6 +168,9 @@ def update_local_chatrooms(core, l):
         'ToUserName'   : core.storageClass.userName, }
 
 def update_local_friends(core, l):
+    '''
+        get a list of friends or mps for updating local contact
+    '''
     fullList = core.memberList + core.mpList
     for friend in l:
         utils.emoji_formatter(friend, 'NickName')
@@ -186,7 +198,7 @@ def update_local_uin(core, msg):
     usernameChangedList = []
     r = {
         'Type': 'System',
-        'Text': usernameChangedList, 
+        'Text': usernameChangedList,
         'SystemInfo': 'uins', }
     if uins:
         uins = uins.group(1).split(',')
@@ -309,7 +321,7 @@ def add_friend(self, userName, status=2, verifyContent='', autoUpdate=True):
         'VerifyUserListSize': 1,
         'VerifyUserList': [{
             'Value': userName,
-            'VerifyUserTicket': '', }], 
+            'VerifyUserTicket': '', }],
         'VerifyContent': verifyContent,
         'SceneListCount': 1,
         'SceneList': 33, # [33]
@@ -317,7 +329,8 @@ def add_friend(self, userName, status=2, verifyContent='', autoUpdate=True):
     headers = {
         'ContentType': 'application/json; charset=UTF-8',
         'User-Agent' : config.USER_AGENT }
-    r = self.s.post(url, data=json.dumps(data), headers=headers)
+    r = self.s.post(url, headers=headers,
+        data=json.dumps(data, ensure_ascii=False).encode('utf8', 'replace'))
     if autoUpdate: self.update_friend(userName)
     return ReturnValue(rawResponse=r)
 
@@ -328,7 +341,7 @@ def get_head_img(self, userName=None, chatroomUserName=None, picDir=None):
      * if you want to get chatroom member header: set both
     '''
     params = {
-        'userName': userName or chatroomUserName,
+        'userName': userName or chatroomUserName or self.storageClass.userName,
         'skey': self.loginInfo['skey'], }
     url = '%s/webwxgeticon' % self.loginInfo['url']
     if chatroomUserName is None:

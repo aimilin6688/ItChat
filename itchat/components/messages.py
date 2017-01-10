@@ -1,7 +1,8 @@
 import os, time, re, io
 import json
-import mimetypes
+import mimetypes, hashlib
 import traceback, logging
+from collections import OrderedDict
 
 import requests
 
@@ -74,7 +75,7 @@ def produce_msg(core, msgList):
                 '%s/webwxgetvoice' % core.loginInfo['url'], m['NewMsgId'])
             msg = {
                 'Type': 'Recording',
-                'FileName' : '%s.mp4' % time.strftime('%y%m%d-%H%M%S', time.localtime()),
+                'FileName' : '%s.mp3' % time.strftime('%y%m%d-%H%M%S', time.localtime()),
                 'Text': download_fn,}
         elif m['MsgType'] == 37: # friends
             msg = {
@@ -88,6 +89,27 @@ def produce_msg(core, msgList):
             msg = {
                 'Type': 'Card',
                 'Text': m['RecommendInfo'], }
+        elif m['MsgType'] in (43, 62): # tiny video
+            msgId = m['MsgId']
+            def download_video(videoDir=None):
+                url = '%s/webwxgetvideo' % core.loginInfo['url']
+                params = {
+                    'msgid': msgId,
+                    'skey': core.loginInfo['skey'],}
+                headers = {'Range': 'bytes=0-', 'User-Agent' : config.USER_AGENT }
+                r = core.s.get(url, params=params, headers=headers, stream=True)
+                tempStorage = io.BytesIO()
+                for block in r.iter_content(1024):
+                    tempStorage.write(block)
+                if videoDir is None: return tempStorage.getvalue()
+                with open(videoDir, 'wb') as f: f.write(tempStorage.getvalue())
+                return ReturnValue({'BaseResponse': {
+                    'ErrMsg': 'Successfully downloaded',
+                    'Ret': 0, }})
+            msg = {
+                'Type': 'Video',
+                'FileName' : '%s.mp4' % time.strftime('%y%m%d-%H%M%S', time.localtime()),
+                'Text': download_video, }
         elif m['MsgType'] == 49: # sharing
             if m['AppMsgType'] == 6:
                 rawMsg = m
@@ -142,27 +164,6 @@ def produce_msg(core, msgList):
                     'Text': m['FileName'], }
         elif m['MsgType'] == 51: # phone init
             msg = update_local_uin(core, m)
-        elif m['MsgType'] == 62: # tiny video
-            msgId = m['MsgId']
-            def download_video(videoDir=None):
-                url = '%s/webwxgetvideo' % core.loginInfo['url']
-                params = {
-                    'msgid': msgId,
-                    'skey': core.loginInfo['skey'],}
-                headers = {'Range': 'bytes=0-', 'User-Agent' : config.USER_AGENT }
-                r = core.s.get(url, params=params, headers=headers, stream=True)
-                tempStorage = io.BytesIO()
-                for block in r.iter_content(1024):
-                    tempStorage.write(block)
-                if videoDir is None: return tempStorage.getvalue()
-                with open(videoDir, 'wb') as f: f.write(tempStorage.getvalue())
-                return ReturnValue({'BaseResponse': {
-                    'ErrMsg': 'Successfully downloaded',
-                    'Ret': 0, }})
-            msg = {
-                'Type': 'Video',
-                'FileName' : '%s.mp4' % time.strftime('%y%m%d-%H%M%S', time.localtime()),
-                'Text': download_video, }
         elif m['MsgType'] == 10000:
             msg = {
                 'Type': 'Note',
@@ -214,20 +215,20 @@ def produce_group_chat(core, msg):
 
 def send_raw_msg(self, msgType, content, toUserName):
     url = '%s/webwxsendmsg' % self.loginInfo['url']
-    payloads = {
+    data = {
         'BaseRequest': self.loginInfo['BaseRequest'],
         'Msg': {
             'Type': msgType,
             'Content': content,
             'FromUserName': self.storageClass.userName,
             'ToUserName': (toUserName if toUserName else self.storageClass.userName),
-            'LocalID': self.loginInfo['msgid'],
-            'ClientMsgId': self.loginInfo['msgid'],
-            }, }
-    self.loginInfo['msgid'] += 1
+            'LocalID': int(time.time() * 1e4),
+            'ClientMsgId': int(time.time() * 1e4),
+            }, 
+        'Scene': 0, }
     headers = { 'ContentType': 'application/json; charset=UTF-8', 'User-Agent' : config.USER_AGENT }
     r = self.s.post(url, headers=headers,
-        data=json.dumps(payloads, ensure_ascii=False).encode('utf8'))
+        data=json.dumps(data, ensure_ascii=False).encode('utf8'))
     return ReturnValue(rawResponse=r)
 
 def send_msg(self, msg='Test Message', toUserName=None):
@@ -235,39 +236,64 @@ def send_msg(self, msg='Test Message', toUserName=None):
     r = self.send_raw_msg(1, msg, toUserName)
     return r
 
-def upload_file(self, fileDir, isPicture=False, isVideo=False):
+def upload_file(self, fileDir, isPicture=False, isVideo=False,
+        toUserName='filehelper'):
     logger.debug('Request to upload a %s: %s' % (
         'picture' if isPicture else 'video' if isVideo else 'file', fileDir))
     if not utils.check_file(fileDir):
         return ReturnValue({'BaseResponse': {
             'ErrMsg': 'No file found in specific dir',
             'Ret': -1002, }})
-    url = self.loginInfo.get('fileUrl', self.loginInfo['url']) + \
+    fileSize = os.path.getsize(fileDir)
+    fileSymbol = 'pic' if isPicture else 'video' if isVideo else'doc'
+    with open(fileDir, 'rb') as f: fileMd5 = hashlib.md5(f.read()).hexdigest()
+    file = open(fileDir, 'rb')
+    chunks = int((fileSize - 1) / 524288) + 1
+    clientMediaId = int(time.time() * 1e4)
+    uploadMediaRequest = json.dumps(OrderedDict([
+        ('UploadType', 2),
+        ('BaseRequest', self.loginInfo['BaseRequest']),
+        ('ClientMediaId', clientMediaId),
+        ('TotalLen', fileSize),
+        ('StartPos', 0),
+        ('DataLen', fileSize),
+        ('MediaType', 4),
+        ('FromUserName', self.storageClass.userName),
+        ('ToUserName', toUserName),
+        ('FileMd5', fileMd5)]
+        ), separators = (',', ':'))
+    for chunk in range(chunks):
+        r = upload_chunk_file(self, fileDir, fileSymbol, fileSize,
+            file, chunk, chunks, uploadMediaRequest)
+    file.close()
+    return ReturnValue(rawResponse=r)
+
+def upload_chunk_file(core, fileDir, fileSymbol, fileSize,
+        file, chunk, chunks, uploadMediaRequest):
+    url = core.loginInfo.get('fileUrl', core.loginInfo['url']) + \
         '/webwxuploadmedia?f=json'
     # save it on server
-    fileSize = str(os.path.getsize(fileDir))
-    cookiesList = {name:data for name,data in self.s.cookies.items()}
+    cookiesList = {name:data for name,data in core.s.cookies.items()}
     fileType = mimetypes.guess_type(fileDir)[0] or 'application/octet-stream'
-    files = {
-        'id': (None, 'WU_FILE_0'),
-        'name': (None, os.path.basename(fileDir)),
-        'type': (None, fileType),
-        'lastModifiedDate': (None, time.strftime('%a %b %d %Y %H:%M:%S GMT+0800 (CST)')),
-        'size': (None, fileSize),
-        'mediatype': (None, 'pic' if isPicture else 'video' if isVideo else'doc'),
-        'uploadmediarequest': (None, json.dumps({
-            'BaseRequest': self.loginInfo['BaseRequest'],
-            'ClientMediaId': int(time.time()),
-            'TotalLen': fileSize,
-            'StartPos': 0,
-            'DataLen': fileSize,
-            'MediaType': 4, }, separators = (',', ':'))),
-        'webwx_data_ticket': (None, cookiesList['webwx_data_ticket']),
-        'pass_ticket': (None, 'undefined'),
-        'filename' : (os.path.basename(fileDir), open(fileDir, 'rb'), fileType), }
+    files = OrderedDict([
+        ('id', (None, 'WU_FILE_0')),
+        ('name', (None, os.path.basename(fileDir))),
+        ('type', (None, fileType)),
+        ('lastModifiedDate', (None, time.strftime('%a %b %d %Y %H:%M:%S GMT+0800 (CST)'))),
+        ('size', (None, str(fileSize))),
+        ('chunks', (None, None)),
+        ('chunk', (None, None)),
+        ('mediatype', (None, fileSymbol)),
+        ('uploadmediarequest', (None, uploadMediaRequest)),
+        ('webwx_data_ticket', (None, cookiesList['webwx_data_ticket'])),
+        ('pass_ticket', (None, core.loginInfo['pass_ticket'])),
+        ('filename' , (os.path.basename(fileDir), file.read(524288), 'application/octet-stream'))])
+    if chunks == 1:
+        del files['chunk']; del files['chunks']
+    else:
+        files['chunk'], files['chunks'] = (None, str(chunk)), (None, str(chunks))
     headers = { 'User-Agent' : config.USER_AGENT }
-    r = self.s.post(url, files=files, headers=headers)
-    return ReturnValue(rawResponse=r)
+    return requests.post(url, files=files, headers=headers)
 
 def send_file(self, fileDir, toUserName=None, mediaId=None):
     logger.debug('Request to send a file(mediaId: %s) to %s: %s' % (
@@ -290,9 +316,9 @@ def send_file(self, fileDir, toUserName=None, mediaId=None):
                 "<fileext>%s</fileext></appattach><extinfo></extinfo></appmsg>"%os.path.splitext(fileDir)[1].replace('.','')),
             'FromUserName': self.storageClass.userName,
             'ToUserName': toUserName,
-            'LocalID': self.loginInfo['msgid'],
-            'ClientMsgId': self.loginInfo['msgid'], }, }
-    self.loginInfo['msgid'] += 1
+            'LocalID': int(time.time() * 1e4),
+            'ClientMsgId': int(time.time() * 1e4), },
+        'Scene': 0, }
     headers = {
         'User-Agent': config.USER_AGENT,
         'Content-Type': 'application/json;charset=UTF-8', }
@@ -318,9 +344,9 @@ def send_image(self, fileDir, toUserName=None, mediaId=None):
             'MediaId': mediaId,
             'FromUserName': self.storageClass.userName,
             'ToUserName': toUserName,
-            'LocalID': self.loginInfo['msgid'],
-            'ClientMsgId': self.loginInfo['msgid'], }, }
-    self.loginInfo['msgid'] += 1
+            'LocalID': int(time.time() * 1e4),
+            'ClientMsgId': int(time.time() * 1e4), },
+        'Scene': 0, }
     if fileDir[-4:] == '.gif':
         url = '%s/webwxsendemoticon?fun=sys' % self.loginInfo['url']
         data['Msg']['Type'] = 47
@@ -351,10 +377,9 @@ def send_video(self, fileDir=None, toUserName=None, mediaId=None):
             'MediaId'      : mediaId,
             'FromUserName' : self.storageClass.userName,
             'ToUserName'   : toUserName,
-            'LocalID'      : self.loginInfo['msgid'],
-            'ClientMsgId'  : self.loginInfo['msgid'], },
+            'LocalID'      : int(time.time() * 1e4),
+            'ClientMsgId'  : int(time.time() * 1e4), },
         'Scene': 0, }
-    self.loginInfo['msgid'] += 1
     headers = {
         'User-Agent' : config.USER_AGENT,
         'Content-Type': 'application/json;charset=UTF-8', }
