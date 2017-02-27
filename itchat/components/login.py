@@ -5,6 +5,7 @@ import copy, pickle, random
 import traceback, logging
 
 import requests
+from pyqrcode import QRCode
 
 from .. import config, utils
 from ..returnvalues import ReturnValue
@@ -27,20 +28,15 @@ def load_login(core):
 def login(self, enableCmdQR=False, picDir=None, qrCallback=None,
         loginCallback=None, exitCallback=None):
     if self.alive:
-        logger.debug('itchat has already logged in.')
+        logger.warning('itchat has already logged in.')
         return
     while 1:
-        for getCount in range(10):
-            logger.info('Getting uuid of QR code.')
-            while not self.get_QRuuid(): time.sleep(1)
-            logger.info('Downloading QR code.')
-            qrStorage = self.get_QR(enableCmdQR=enableCmdQR,
-                picDir=picDir, qrCallback=qrCallback)
-            if qrStorage:
-                break
-            elif 9 == getCount:
-                logger.info('Failed to get QR code, please restart the program.')
-                sys.exit()
+        logger.info('Getting uuid of QR code.')
+        while not self.get_QRuuid():
+            time.sleep(1)
+        logger.info('Downloading QR code.')
+        qrStorage = self.get_QR(enableCmdQR=enableCmdQR,
+            picDir=picDir, qrCallback=qrCallback)
         logger.info('Please scan the QR code to log in.')
         isLoggedIn = False
         while not isLoggedIn:
@@ -55,7 +51,8 @@ def login(self, enableCmdQR=False, picDir=None, qrCallback=None,
                     isLoggedIn = None
             elif status != '408':
                 break
-        if isLoggedIn: break
+        if isLoggedIn:
+            break
         logger.info('Log in time out, reloading QR code')
     self.web_init()
     self.show_mobile_login()
@@ -85,20 +82,17 @@ def get_QRuuid(self):
 def get_QR(self, uuid=None, enableCmdQR=False, picDir=None, qrCallback=None):
     uuid = uuid or self.uuid
     picDir = picDir or config.DEFAULT_QR
-    url = '%s/qrcode/%s' % (config.BASE_URL, uuid)
-    headers = { 'User-Agent' : config.USER_AGENT }
-    try:
-        r = self.s.get(url, stream=True, headers=headers)
-    except:
-        return False
-    qrStorage = io.BytesIO(r.content)
+    qrStorage = io.BytesIO()
+    qrCode = QRCode('https://login.weixin.qq.com/l/' + uuid)
+    qrCode.png(qrStorage, scale=10)
     if hasattr(qrCallback, '__call__'):
         qrCallback(uuid=uuid, status='0', qrcode=qrStorage.getvalue())
     else:
-        with open(picDir, 'wb') as f: f.write(r.content)
         if enableCmdQR:
-            utils.print_cmd_qr(picDir, enableCmdQR=enableCmdQR)
+            utils.print_cmd_qr(qrCode.text(1), enableCmdQR=enableCmdQR)
         else:
+            with open(picDir, 'wb') as f:
+                f.write(qrStorage.getvalue())
             utils.print_qr(picDir)
     return qrStorage
 
@@ -168,25 +162,12 @@ def web_init(self):
     utils.emoji_formatter(dic['User'], 'NickName')
     self.loginInfo['InviteStartCount'] = int(dic['InviteStartCount'])
     self.loginInfo['User'] = utils.struct_friend_info(dic['User'])
+    self.memberList.append(self.loginInfo['User'])
     self.loginInfo['SyncKey'] = dic['SyncKey']
     self.loginInfo['synckey'] = '|'.join(['%s_%s' % (item['Key'], item['Val'])
         for item in dic['SyncKey']['List']])
     self.storageClass.userName = dic['User']['UserName']
     self.storageClass.nickName = dic['User']['NickName']
-    # deal with contact list returned when init
-    contactList = dic.get('ContactList', [])
-    contactList.append(self.loginInfo['User'])
-    chatroomList, otherList = [], []
-    for m in contactList:
-        if m['Sex'] != 0:
-            otherList.append(m)
-        elif '@@' in m['UserName']:
-            chatroomList.append(m)
-        elif '@' in m['UserName']:
-            # mp will be dealt in update_local_friends as well
-            otherList.append(m)
-    if chatroomList: update_local_chatrooms(self, chatroomList)
-    if otherList: update_local_friends(self, otherList)
     return dic
 
 def show_mobile_login(self):
@@ -233,7 +214,7 @@ def start_receiving(self, exitCallback=None, getReceivingFnOnly=False):
                 retryCount = 0
             except:
                 retryCount += 1
-                logger.debug(traceback.format_exc())
+                logger.error(traceback.format_exc())
                 if self.receivingRetryCount < retryCount:
                     self.alive = False
                 else:

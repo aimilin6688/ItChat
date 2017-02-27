@@ -180,7 +180,7 @@ def produce_msg(core, msgList):
                 'Type': 'Useless',
                 'Text': 'UselessMsg', }
         else:
-            logger.debug('MsgType Unknown: %s\n%s' % (m['MsgType'], str(m)))
+            logger.debug('Useless message received: %s\n%s' % (m['MsgType'], str(m)))
             msg = {
                 'Type': 'Useless',
                 'Text': 'UselessMsg', }
@@ -190,28 +190,34 @@ def produce_msg(core, msgList):
 
 def produce_group_chat(core, msg):
     r = re.match('(@[0-9a-z]*?):<br/>(.*)$', msg['Content'])
-    if not r:
-        utils.msg_formatter(msg, 'Content')
+    if r:
+        actualUserName, content = r.groups()
+        chatroomUserName = msg['FromUserName']
+    elif msg['FromUserName'] == core.storageClass.userName:
+        actualUserName = core.storageClass.userName
+        content = msg['Content']
+        chatroomUserName = msg['ToUserName']
+    else:
         return
-    actualUserName, content = r.groups()
-    chatroom = core.storageClass.search_chatrooms(userName=msg['FromUserName'])
+    chatroom = core.storageClass.search_chatrooms(userName=chatroomUserName)
     member = utils.search_dict_list((chatroom or {}).get(
         'MemberList') or [], 'UserName', actualUserName)
     if member is None:
         chatroom = core.update_chatroom(msg['FromUserName'])
         member = utils.search_dict_list((chatroom or {}).get(
             'MemberList') or [], 'UserName', actualUserName)
-    msg['ActualUserName'] = actualUserName
-    msg['ActualNickName'] = member['DisplayName'] or member['NickName']
-    msg['Content']        = content
-    utils.msg_formatter(msg, 'Content')
-    atFlag = '@' + (chatroom['self']['DisplayName']
-        or core.storageClass.nickName)
-    msg['isAt'] = (
-        (atFlag + (u'\u2005' if u'\u2005' in msg['Content'] else ' '))
-        in msg['Content']
-        or
-        msg['Content'].endswith(atFlag))
+    if member is None:
+        logger.debug('chatroom member fetch failed with %s' % actualUserName)
+    else:
+        msg['ActualUserName'] = actualUserName
+        msg['ActualNickName'] = member['DisplayName'] or member['NickName']
+        msg['Content']        = content
+        utils.msg_formatter(msg, 'Content')
+        atFlag = '@' + (chatroom['self']['DisplayName']
+            or core.storageClass.nickName)
+        msg['isAt'] = (
+            (atFlag + (u'\u2005' if u'\u2005' in msg['Content'] else ' '))
+            in msg['Content'] or msg['Content'].endswith(atFlag))
 
 def send_raw_msg(self, msgType, content, toUserName):
     url = '%s/webwxsendmsg' % self.loginInfo['url']
